@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TCM Map Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --primary-color: #3b82f6;
+            --bg-grid: #f8fafc;
+        }
+
+        body {
+            background-color: #f1f5f9;
+            font-family: 'Pretendard', sans-serif;
+        }
+
+        #map-container {
+            aspect-ratio: 1 / 1;
+            position: relative;
+            background-color: white;
+            border: 2px solid #e2e8f0;
+            overflow: hidden;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Grid lines */
+        .axis-y {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: #94a3b8;
+            transform: translateX(-50%);
+        }
+
+        .axis-x {
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background-color: #94a3b8;
+            transform: translateY(-50%);
+        }
+
+        .item-node {
+            position: absolute;
+            width: 120px;
+            padding: 8px;
+            background: white;
+            border: 2px solid var(--primary-color);
+            border-radius: 8px;
+            cursor: move;
+            user-select: none;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: transform 0.1s, box-shadow 0.1s;
+            z-index: 10;
+        }
+
+        .item-node:hover {
+            box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
+            z-index: 20;
+        }
+
+        .item-node:active {
+            transform: scale(0.95);
+        }
+
+        .quadrant-label {
+            position: absolute;
+            font-size: 0.75rem;
+            color: #cbd5e1;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+<div class="max-w-4xl mx-auto">
+    <!-- Header & Controls -->
+    <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <div>
+            <h1 class="text-2xl font-bold text-slate-800">TCM 전략 맵</h1>
+            <p class="text-slate-500 text-sm">아이템을 드래그하여 위치를 업그레이드 하세요.</p>
+        </div>
+        <div class="flex gap-2">
+            <input type="text" id="newItemName" placeholder="아이템 명칭" 
+                   class="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+            <button onclick="addItem()" 
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+                추가
+            </button>
+        </div>
+    </div>
+
+    <!-- The Map -->
+    <div id="map-container" class="rounded-xl">
+        <!-- Axes Labels -->
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 -mt-8 font-bold text-blue-700">기술 & 파트너 (Tech & Partner) ↑</div>
+        <div class="absolute bottom-0 left-1/2 -translate-x-1/2 -mb-8 text-slate-400">기술 낮음</div>
+        
+        <div class="absolute top-1/2 right-0 translate-y-1/2 -mr-32 font-bold text-emerald-700 rotate-90">시장 & 고객 (Market & Customer) →</div>
+        <div class="absolute top-1/2 left-0 -translate-y-1/2 -ml-16 text-slate-400 -rotate-90">시장 작음</div>
+
+        <!-- Quadrant Names -->
+        <div class="quadrant-label top-4 right-4 text-right">High Tech / High Market<br>전략적 요충지</div>
+        <div class="quadrant-label top-4 left-4 text-left">Internal Capability<br>기술 고도화 구역</div>
+        <div class="quadrant-label bottom-4 left-4 text-left">Early Stage<br>초기 탐색 구역</div>
+        <div class="quadrant-label bottom-4 right-4 text-right">Market Driven<br>수익 창출 구역</div>
+
+        <!-- Grid Lines -->
+        <div class="axis-y"></div>
+        <div class="axis-x"></div>
+
+        <!-- Items will be injected here -->
+        <div id="item-layer" class="w-full h-full relative"></div>
+    </div>
+
+    <div class="mt-12 p-6 bg-white rounded-xl shadow-sm border border-slate-200">
+        <h2 class="text-lg font-bold mb-4">현재 아이템 리스트</h2>
+        <div id="item-list" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <!-- List items here -->
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50">
+    <div class="bg-white p-6 rounded-xl w-80 shadow-2xl">
+        <h3 class="text-lg font-bold mb-4">아이템 수정</h3>
+        <input type="text" id="editItemName" class="w-full px-3 py-2 border rounded mb-4 focus:outline-none ring-blue-500 focus:ring-2">
+        <div class="flex justify-between gap-2">
+            <button onclick="deleteItem()" class="text-red-500 hover:text-red-700 text-sm font-medium">삭제</button>
+            <div class="flex gap-2">
+                <button onclick="closeModal()" class="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded">취소</button>
+                <button onclick="saveEdit()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">저장</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let items = [
+        { id: 1, name: "신규 배터리 솔루션", x: 75, y: 80 },
+        { id: 2, name: "AI 물류 플랫폼", x: 30, y: 40 },
+        { id: 3, name: "기존 부품 유통", x: 80, y: 20 }
+    ];
+    let editingId = null;
+    let isDragging = false;
+    let currentDragTarget = null;
+
+    const container = document.getElementById('map-container');
+    const itemLayer = document.getElementById('item-layer');
+
+    function render() {
+        itemLayer.innerHTML = '';
+        const listContainer = document.getElementById('item-list');
+        listContainer.innerHTML = '';
+
+        items.forEach(item => {
+            // Render on Map
+            const node = document.createElement('div');
+            node.className = 'item-node';
+            node.innerText = item.name;
+            node.style.left = `calc(${item.x}% - 60px)`; // Center the 120px box
+            node.style.top = `calc(${100 - item.y}% - 20px)`; // Reverse Y for math coordinates
+            
+            node.onmousedown = (e) => startDrag(e, item.id);
+            node.onclick = (e) => {
+                if (!isDragging) openEdit(item.id);
+            };
+            
+            itemLayer.appendChild(node);
+
+            // Render on List
+            const listItem = document.createElement('div');
+            listItem.className = 'flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100';
+            listItem.innerHTML = `
+                <span class="font-medium text-slate-700">${item.name}</span>
+                <span class="text-xs text-slate-400">X:${item.x}% Y:${item.y}%</span>
+            `;
+            listContainer.appendChild(listItem);
+        });
+    }
+
+    function addItem() {
+        const nameInput = document.getElementById('newItemName');
+        if (!nameInput.value.trim()) return;
+
+        const newItem = {
+            id: Date.now(),
+            name: nameInput.value,
+            x: 50, // Default center
+            y: 50
+        };
+
+        items.push(newItem);
+        nameInput.value = '';
+        render();
+    }
+
+    function startDrag(e, id) {
+        isDragging = false;
+        currentDragTarget = id;
+        
+        const moveHandler = (moveEvent) => {
+            isDragging = true;
+            const rect = container.getBoundingClientRect();
+            let x = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+            let y = 100 - (((moveEvent.clientY - rect.top) / rect.height) * 100);
+
+            // Bounds
+            x = Math.max(0, Math.min(100, x));
+            y = Math.max(0, Math.min(100, y));
+
+            const item = items.find(i => i.id === id);
+            if (item) {
+                item.x = Math.round(x);
+                item.y = Math.round(y);
+                render();
+            }
+        };
+
+        const upHandler = () => {
+            window.removeEventListener('mousemove', moveHandler);
+            window.removeEventListener('mouseup', upHandler);
+            setTimeout(() => { isDragging = false; }, 50);
+        };
+
+        window.addEventListener('mousemove', moveHandler);
+        window.addEventListener('mouseup', upHandler);
+    }
+
+    function openEdit(id) {
+        editingId = id;
+        const item = items.find(i => i.id === id);
+        document.getElementById('editItemName').value = item.name;
+        document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+        document.getElementById('editModal').classList.add('hidden');
+        editingId = null;
+    }
+
+    function saveEdit() {
+        const newName = document.getElementById('editItemName').value;
+        const item = items.find(i => i.id === editingId);
+        if (item && newName.trim()) {
+            item.name = newName;
+            render();
+            closeModal();
+        }
+    }
+
+    function deleteItem() {
+        items = items.filter(i => i.id !== editingId);
+        render();
+        closeModal();
+    }
+
+    // Initial render
+    window.onload = render;
+</script>
+
+</body>
+</html>
